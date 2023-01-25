@@ -9,6 +9,17 @@
 #include "esp_avrc_api.h"
 
 #include "xbox_driver.h"
+#include "zune_driver.h"
+
+// esp32-a1s header
+// gnd,  0, rst, tx0, rx0, 3v3, 3v3
+//  21, 22,  19,  23,  18,   5, gnd
+// 0, rst, tx0, rx0 are for programming interface, so the top row is useless
+
+// tested, works
+#define XBOX_CLK 22
+#define XBOX_DIO 21
+#define XBOX_RST 19
 
 AudioKitStream kit; // Access I2S as stream
 A2DPStream out = A2DPStream::instance();
@@ -18,59 +29,7 @@ QueueHandle_t pt_event_queue;
 
 
 TaskHandle_t audio_copy_task_handle = NULL;
-TaskHandle_t ipod_control_task_handle = NULL;
-
-void passthrough_callback(esp_avrc_tg_cb_param_t::avrc_tg_psth_cmd_param param) {
-  // key codes: https://github.com/espressif/esp-idf/blob/a82e6e63d98bb051d4c59cb3d440c537ab9f74b0/components/bt/host/bluedroid/api/include/api/esp_avrc_api.h#L44-L102
-  // key states: 0 = Pressed, 1 = Released
-  if(param.key_state != 0) return;
-
-    // these are all ipod, I need to fill in the zune blanks AND initialize the correct serial port still
-  switch(param.key_code) {
-    case ESP_AVRC_PT_CMD_VOL_UP:
-      Serial.write((uint8_t*)"\xFFU\x03\x02\x00\x02\xF9\xFFU\x03\x02\x00\x00\xFB", 14);
-      break;
-    case ESP_AVRC_PT_CMD_VOL_DOWN:
-      Serial.write((uint8_t*)"\xFFU\x03\x02\x00\x04\xF7\xFFU\x03\x02\x00\x00\xFB", 14);
-      break;
-    case ESP_AVRC_PT_CMD_FORWARD:
-    case ESP_AVRC_PT_CMD_FAST_FORWARD:
-      Serial.write((uint8_t*)"\xFFU\x03\x02\x00\b\xF3\xFFU\x03\x02\x00\x00\xFB", 14);
-      break;
-    case ESP_AVRC_PT_CMD_BACKWARD:
-    case ESP_AVRC_PT_CMD_REWIND:
-      Serial.write((uint8_t*)"\xFFU\x03\x02\x00\x10\xEB\xFFU\x03\x02\x00\x00\xFB", 14);
-      break;
-    case ESP_AVRC_PT_CMD_STOP:
-      Serial.write((uint8_t*)"\xFFU\x03\x02\x00\x80{\xFFU\x03\x02\x00\x00\xFB", 14);
-      break;
-    case ESP_AVRC_PT_CMD_PLAY:
-      Serial.write((uint8_t*)"\xFFU\x04\x02\x00\x00\x01\xF9\xFFU\x03\x02\x00\x00\xFB", 15);
-      break;
-    case ESP_AVRC_PT_CMD_PAUSE:
-      Serial.write((uint8_t*)"\xFFU\x04\x02\x00\x00\x02\xF8\xFFU\x03\x02\x00\x00\xFB", 15);
-      break;
-    case ESP_AVRC_PT_CMD_MUTE:
-      Serial.write((uint8_t*)"\xFFU\x04\x02\x00\x00\x04\xF6\xFFU\x03\x02\x00\x00\xFB", 15);
-      break;
-    case ESP_AVRC_PT_CMD_ROOT_MENU:
-      Serial.write((uint8_t*)"\xFFU\x05\x02\x00\x00\x00@\xB9\xFFU\x03\x02\x00\x00\xFB", 16);
-      break;
-    case ESP_AVRC_PT_CMD_SELECT:
-      Serial.write((uint8_t*)"\xFFU\x05\x02\x00\x00\x00\x80y\xFFU\x03\x02\x00\x00\xFB", 16);
-      break;
-    case ESP_AVRC_PT_CMD_UP:
-      Serial.write((uint8_t*)"\xFFU\x06\x02\x00\x00\x00\x00\x01\xF7\xFFU\x03\x02\x00\x00\xFB", 17);
-      break;
-    case ESP_AVRC_PT_CMD_DOWN:
-      Serial.write((uint8_t*)"\xFFU\x06\x02\x00\x00\x00\x00\x02\xF6\xFFU\x03\x02\x00\x00\xFB", 17);
-      break;
-    default:
-      break;
-  }
-
-  Serial.flush();
-}
+TaskHandle_t zune_control_task_handle = NULL;
 
 void audio_copy_task(void* pvParameters) {
   for( ;; ) copier.copy();
@@ -83,7 +42,7 @@ void avrcp_to_uart_task(void* pvParameters) {
   for( ;; ) {
     if(pt_event_queue) {
       if(xQueueReceive(pt_event_queue, &event, 0) == pdTRUE) {
-        if(event.key_code != 0) passthrough_callback(event);
+        if(event.key_code != 0) handle_avrcp(event);
       }
     }
   }
@@ -96,14 +55,8 @@ uint8_t from_xbox[25];
 // Arduino Setup
 void setup() {
     Serial.begin(115200);
-    // esp32-a1s header
-    // gnd,  0, rst, tx0, rx0, 3v3, 3v3
-    //  21, 22,  19,  23,  18,   5, gnd
-    // 0, rst, tx0, rx0 are for programming interface, so the top row is useless
-    // rst(7) = 19
-    // clk(6) = 22
-    // dio(5) = 21
-    setupXbox(21, 22, 19);
+    setupZune();
+    setupXbox(XBOX_DIO, XBOX_CLK, XBOX_RST);
     uint8_t out[5] = 
     {
       0x09, 0x5b, 0x00, 0x00, 0x17
@@ -160,7 +113,7 @@ void setup() {
   //   ESP.restart();
   // }
 
-  // xReturned = xTaskCreate(avrcp_to_uart_task, "AVRCPToUartTask", 1024 * 4, NULL, tskIDLE_PRIORITY, &ipod_control_task_handle);
+  // xReturned = xTaskCreate(avrcp_to_uart_task, "AVRCPToUartTask", 1024 * 4, NULL, tskIDLE_PRIORITY, &zune_control_task_handle);
   // if(xReturned != pdPASS) {
   //   Serial.print("error making the AVRCP translation task. restarting.\n");
   //   ESP.restart();
