@@ -8,6 +8,8 @@
 
 #include "esp_avrc_api.h"
 
+#include "xbox_driver.h"
+
 AudioKitStream kit; // Access I2S as stream
 A2DPStream out = A2DPStream::instance();
 StreamCopy copier(out, kit);  
@@ -88,42 +90,84 @@ void avrcp_to_uart_task(void* pvParameters) {
   taskYIELD();
 }
 
+uint8_t to_xbox[25];
+uint8_t from_xbox[25];
+
 // Arduino Setup
 void setup() {
-    // configure the input stream
-    auto cfg = kit.defaultConfig(RX_MODE);
-    cfg.sd_active = false;
-    cfg.input_device = AUDIO_HAL_ADC_INPUT_LINE2;
-    cfg.sample_rate = AUDIO_HAL_44K_SAMPLES;
-
-    auto config = out.defaultConfig();
-    config.auto_reconnect = true;
-    config.mode = TX_MODE;
-    pt_event_queue = config.passthrough_event_queue;
-    out.begin(config);
-    while(!out.a2dp_source->is_connected())
+    Serial.begin(115200);
+    // esp32-a1s header
+    // gnd,  0, rst, tx0, rx0, 3v3, 3v3
+    //  21, 22,  19,  23,  18,   5, gnd
+    // 0, rst, tx0, rx0 are for programming interface, so the top row is useless
+    // rst(7) = 19
+    // clk(6) = 22
+    // dio(5) = 21
+    setupXbox(21, 22, 19);
+    uint8_t out[5] = 
     {
-        
+      0x09, 0x5b, 0x00, 0x00, 0x17
+    };
+
+    uint8_t in[29];
+
+    transferXbox(out, in, sizeof(out), sizeof(in));
+
+    Serial.print("out: ");
+
+    for(int i = 0; i<5; i++)
+    {
+      Serial.printf("0x%02x ", out[i]);
     }
 
-    kit.begin(cfg);
-    kit.setVolume(1);
-    out.notifyBaseInfo(44100);
 
-      // step 5: start the tasks that will copy the audio data and handle the ipod control
-  BaseType_t xReturned = xTaskCreate(audio_copy_task, "AudioCopyTask", 1024 * 8, NULL, tskIDLE_PRIORITY, &audio_copy_task_handle);
-  if(xReturned != pdPASS) {
-    Serial.print("error making the audio copy task. restarting.\n");
-    ESP.restart();
-  }
+    Serial.print("\nIn: ");
 
-  xReturned = xTaskCreate(avrcp_to_uart_task, "AVRCPToUartTask", 1024 * 4, NULL, tskIDLE_PRIORITY, &ipod_control_task_handle);
-  if(xReturned != pdPASS) {
-    Serial.print("error making the AVRCP translation task. restarting.\n");
-    ESP.restart();
-  }
+    for(int i = 0; i<29; i++)
+    {
+      Serial.printf("0x%02x ", in[i]);
+    }    
+
+  //   // setup xbox uart, rst, clk
+  //   // set pin 18 high, then low
+  //   // wait for hello
+
+
+  //   // configure the input stream
+  //   auto cfg = kit.defaultConfig(RX_MODE);
+  //   cfg.sd_active = false;
+  //   cfg.input_device = AUDIO_HAL_ADC_INPUT_LINE2;
+  //   cfg.sample_rate = AUDIO_HAL_44K_SAMPLES;
+
+  //   auto config = out.defaultConfig();
+  //   config.auto_reconnect = true;
+  //   config.mode = TX_MODE;
+  //   pt_event_queue = config.passthrough_event_queue;
+  //   out.begin(config);
+  //   while(!out.a2dp_source->is_connected())
+  //   {
+        
+  //   }
+
+  //   kit.begin(cfg);
+  //   kit.setVolume(1);
+  //   out.notifyBaseInfo(44100);
+
+  //     // step 5: start the tasks that will copy the audio data and handle the ipod control
+  // BaseType_t xReturned = xTaskCreate(audio_copy_task, "AudioCopyTask", 1024 * 8, NULL, tskIDLE_PRIORITY, &audio_copy_task_handle);
+  // if(xReturned != pdPASS) {
+  //   Serial.print("error making the audio copy task. restarting.\n");
+  //   ESP.restart();
+  // }
+
+  // xReturned = xTaskCreate(avrcp_to_uart_task, "AVRCPToUartTask", 1024 * 4, NULL, tskIDLE_PRIORITY, &ipod_control_task_handle);
+  // if(xReturned != pdPASS) {
+  //   Serial.print("error making the AVRCP translation task. restarting.\n");
+  //   ESP.restart();
+  // }
 }
 
-void loop(){}
-
-
+void loop()
+{
+  delay(100);
+}

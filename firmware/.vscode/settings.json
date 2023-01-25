@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "uart_types.h": "c",
+        "hardwareserial.h": "c"
+    }
+}
