@@ -1,0 +1,4 @@
+(fp_lib_table
+  (lib (name "ZuneConnector")(type "KiCad")(uri "${KIPRJMOD}")(options "")(descr ""))
+  (lib (name "ESP32-A1S")(type "KiCad")(uri "${KIPRJMOD}")(options "")(descr ""))
+)
