@@ -4,23 +4,92 @@
 
 int auth_pin;
 
-void setupZune(int from_zune, int to_zune, int _auth_pin)
+uint8_t calculate_crc(uint8_t cmd_type, uint8_t * data, size_t length)
 {
+  uint8_t crc = length + cmd_type;
+  for(int i = 0; i < length; i++){
+    crc+=data[i]; // we dont care if it overflows
+  }
+  crc = crc ^ 0xff;
+  return crc;
+}
+
+void handle_0x10(uint8_t * data, size_t size)
+{
+  Serial.println("welcome to the 0x10 handler!");
+}
+
+void onReceiveFunction(void) {
+  // find the first byte in a message, we may have started in the middle
+  uint8_t rx_buffer[4]; // four, because the first byte where we even know what we need is four bytes into a valid message
+  while(true){
+    if(Serial2.available())
+    {
+      // we are looking for the first byte
+      if(Serial2.peek() != 0x41){
+        Serial2.readBytes(rx_buffer,1);
+        Serial.printf("Discarded: 0x%02x\n", rx_buffer[0]);
+      }
+      else {
+        break;
+      }
+    }
+  }
+  // we have the first byte, lets get the type and length
+  
+  Serial2.readBytes(rx_buffer, 4);
+  uint8_t type = rx_buffer[2];
+  uint8_t length = rx_buffer[3];
+  
+  // now, we need to get the data part and the crc
+  uint8_t data[length+1];
+  Serial2.readBytes(data, length+1); // length + crc
+
+  Serial.print("Packet!\n");
+  Serial.printf("Type: 0x%02x\n", type);
+  Serial.printf("Length: 0x%02x\n", length);
+  Serial.print("Data:");
+  for(int i = 0; i< length+1; i++) // a length of 0 still has data. i think.
+  {
+    Serial.printf(" [0x%02x]0x%02x",i,data[i]);
+  }
+  Serial.print("\n");
+
+  uint8_t crc = calculate_crc(type, data, length);
+
+
+  if(data[length] != crc)
+  {
+    Serial.println("Bad CRC!");
+    return;
+  }
+
+  if(type == 0x10)
+  {
+    handle_0x10(data, length);
+  }
+
+}
+
+// tx - to zune
+// rx - from zune
+void setupZune(int tx_pin, int rx_pin, int _auth_pin)
+{
+    Serial.println("hello from seattle");
     auth_pin = _auth_pin;
-    pinMode(_auth_pin, PULLDOWN); // auth is for as long as _auth_pin is low
+    // pinMode(_auth_pin, PULLDOWN); // auth is for as long as _auth_pin is low
 
-    Serial2.begin(57600, SERIAL_8N1, from_zune, to_zune);
+    // 57600 was confirmed with a logic analyzer across many different device-specific handshake captures
+    Serial2.begin(57600, SERIAL_8N1, rx_pin, tx_pin);
+    // Serial2.onReceiveError(onRxErr);
+    Serial2.onReceive(onReceiveFunction);
+    Serial.println("Done setting up zune uart");
 }
 
-uint8_t calculate_crc(uint8_t * packet, size_t length)
+// the zune sends a pile of messages. we just need to respond to them.
+void handle_message(uint8_t * message, size_t length)
 {
 
-}
-
-void doAuthHandshake()
-{
-    //41 41 10 04 00 03 00 01 E7
-    Serial2.write()
 }
 
 void handle_avrcp(esp_avrc_tg_cb_param_t::avrc_tg_psth_cmd_param param) {

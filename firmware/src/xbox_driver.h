@@ -1,3 +1,4 @@
+#pragma once
 #include "stdint.h"
 
 void setupXbox(int dio, int _clk, int _rst);

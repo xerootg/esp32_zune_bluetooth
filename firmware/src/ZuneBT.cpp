@@ -55,72 +55,45 @@ uint8_t from_xbox[25];
 // Arduino Setup
 void setup() {
     Serial.begin(115200);
-    setupZune();
-    setupXbox(XBOX_DIO, XBOX_CLK, XBOX_RST);
-    uint8_t out[5] = 
+
+    // setupXbox(XBOX_DIO, XBOX_CLK, XBOX_RST);
+    setupZune(23, 18, 9);
+
+    // configure the input stream
+    auto cfg = kit.defaultConfig(RX_MODE);
+    cfg.sd_active = false;
+    cfg.input_device = AUDIO_HAL_ADC_INPUT_LINE2;
+    cfg.sample_rate = AUDIO_HAL_44K_SAMPLES;
+
+    auto config = out.defaultConfig();
+    config.auto_reconnect = true;
+    config.mode = TX_MODE;
+    pt_event_queue = config.passthrough_event_queue;
+    out.begin(config);
+    while(!out.a2dp_source->is_connected())
     {
-      0x09, 0x5b, 0x00, 0x00, 0x17
-    };
-
-    uint8_t in[29];
-
-    transferXbox(out, in, sizeof(out), sizeof(in));
-
-    Serial.print("out: ");
-
-    for(int i = 0; i<5; i++)
-    {
-      Serial.printf("0x%02x ", out[i]);
+        
     }
 
+    kit.begin(cfg);
+    kit.setVolume(1);
+    out.notifyBaseInfo(44100);
 
-    Serial.print("\nIn: ");
+      // step 5: start the tasks that will copy the audio data and handle the ipod control
+  BaseType_t xReturned = xTaskCreate(audio_copy_task, "AudioCopyTask", 1024 * 8, NULL, tskIDLE_PRIORITY, &audio_copy_task_handle);
+  if(xReturned != pdPASS) {
+    Serial.print("error making the audio copy task. restarting.\n");
+    ESP.restart();
+  }
 
-    for(int i = 0; i<29; i++)
-    {
-      Serial.printf("0x%02x ", in[i]);
-    }    
-
-  //   // setup xbox uart, rst, clk
-  //   // set pin 18 high, then low
-  //   // wait for hello
-
-
-  //   // configure the input stream
-  //   auto cfg = kit.defaultConfig(RX_MODE);
-  //   cfg.sd_active = false;
-  //   cfg.input_device = AUDIO_HAL_ADC_INPUT_LINE2;
-  //   cfg.sample_rate = AUDIO_HAL_44K_SAMPLES;
-
-  //   auto config = out.defaultConfig();
-  //   config.auto_reconnect = true;
-  //   config.mode = TX_MODE;
-  //   pt_event_queue = config.passthrough_event_queue;
-  //   out.begin(config);
-  //   while(!out.a2dp_source->is_connected())
-  //   {
-        
-  //   }
-
-  //   kit.begin(cfg);
-  //   kit.setVolume(1);
-  //   out.notifyBaseInfo(44100);
-
-  //     // step 5: start the tasks that will copy the audio data and handle the ipod control
-  // BaseType_t xReturned = xTaskCreate(audio_copy_task, "AudioCopyTask", 1024 * 8, NULL, tskIDLE_PRIORITY, &audio_copy_task_handle);
-  // if(xReturned != pdPASS) {
-  //   Serial.print("error making the audio copy task. restarting.\n");
-  //   ESP.restart();
-  // }
-
-  // xReturned = xTaskCreate(avrcp_to_uart_task, "AVRCPToUartTask", 1024 * 4, NULL, tskIDLE_PRIORITY, &zune_control_task_handle);
-  // if(xReturned != pdPASS) {
-  //   Serial.print("error making the AVRCP translation task. restarting.\n");
-  //   ESP.restart();
-  // }
+  xReturned = xTaskCreate(avrcp_to_uart_task, "AVRCPToUartTask", 1024 * 4, NULL, tskIDLE_PRIORITY, &zune_control_task_handle);
+  if(xReturned != pdPASS) {
+    Serial.print("error making the AVRCP translation task. restarting.\n");
+    ESP.restart();
+  }
 }
 
 void loop()
 {
-  delay(100);
+  delay(1000);
 }
