@@ -1,25 +1,78 @@
 #include "zune_driver.h"
+#include "zune_utilities.h"
 #include "HardwareSerial.h"
 #include "xbox_driver.h"
 
+#include <mutex>
+std::mutex serial_mtx;
+
+uint8_t zune_to_xbox[128];
+uint8_t xbox_to_zune[128];
 int auth_pin;
 
-uint8_t calculate_crc(uint8_t cmd_type, uint8_t * data, size_t length)
+void handle_0x10(uint8_t * _data, uint8_t size)
 {
-  uint8_t crc = length + cmd_type;
-  for(int i = 0; i < length; i++){
-    crc+=data[i]; // we dont care if it overflows
-  }
-  crc = crc ^ 0xff;
-  return crc;
+  uint8_t cmd_byte = _data[0];
+  uint8_t data[size - 1]; // data is all bytes after cmd_byte
+  memcpy(data, _data + 1, size); // remove type
+  // for(int i = 1; i<size; i++)
+  // {
+  //   data[i - 1] = _data[i];
+  // }
+  Serial.printf("Handling type 0x10 subtype: 0x%02x\n", cmd_byte);
+  switch(cmd_byte)
+  {
+    case 0x03: 
+    {// HELO
+      Serial.print("Sending EHLO\n");
+      uint8_t ehlo[4] = {0x00, 0x03, 0x00, 0x01};
+      send_zune_message(0x10, ehlo, 4);
+    }break;
+    case 0x02:
+    {
+      Serial.print("XboxAuthString\n");
+      uint8_t XboxAuthString[178] = {
+        0x00, 0x02, 0x58, 0x00, 0x62, 0x00, 0x6F, 0x00, 0x78, 0x00,
+        0x20, 0x00, 0x53, 0x00, 0x65, 0x00, 0x63, 0x00, 0x75, 0x00,
+        0x72, 0x00, 0x69, 0x00, 0x74, 0x00, 0x79, 0x00, 0x20, 0x00,
+        0x4D, 0x00, 0x65, 0x00, 0x74, 0x00, 0x68, 0x00, 0x6F, 0x00,
+        0x64, 0x00, 0x20, 0x00, 0x33, 0x00, 0x2C, 0x00, 0x20, 0x00,
+        0x56, 0x00, 0x65, 0x00, 0x72, 0x00, 0x73, 0x00, 0x69, 0x00,
+        0x6F, 0x00, 0x6E, 0x00, 0x20, 0x00, 0x31, 0x00, 0x2E, 0x00,
+        0x30, 0x00, 0x30, 0x00, 0x2C, 0x00, 0x20, 0x00, 0xA9, 0x00,
+        0x20, 0x00, 0x32, 0x00, 0x30, 0x00, 0x30, 0x00, 0x35, 0x00,
+        0x20, 0x00, 0x4D, 0x00, 0x69, 0x00, 0x63, 0x00, 0x72, 0x00,
+        0x6F, 0x00, 0x73, 0x00, 0x6F, 0x00, 0x66, 0x00, 0x74, 0x00,
+        0x20, 0x00, 0x43, 0x00, 0x6F, 0x00, 0x72, 0x00, 0x70, 0x00,
+        0x6F, 0x00, 0x72, 0x00, 0x61, 0x00, 0x74, 0x00, 0x69, 0x00,
+        0x6F, 0x00, 0x6E, 0x00, 0x2E, 0x00, 0x20, 0x00, 0x41, 0x00, 
+        0x6C, 0x00, 0x6C, 0x00, 0x20, 0x00, 0x72, 0x00, 0x69, 0x00, 
+        0x67, 0x00, 0x68, 0x00, 0x74, 0x00, 0x73, 0x00, 0x20, 0x00, 
+        0x72, 0x00, 0x65, 0x00, 0x73, 0x00, 0x65, 0x00, 0x72, 0x00, 
+        0x76, 0x00, 0x65, 0x00, 0x64, 0x00, 0x2E, 0x00}; // 
+      send_zune_message(0x10, XboxAuthString, 178); 
+    }break;
+  };
+  Serial.print("0x10 handler exit\n");
 }
 
-void handle_0x10(uint8_t * data, size_t size)
+void handle_0x11(uint8_t * data, uint8_t size)
 {
-  Serial.println("welcome to the 0x10 handler!");
+  Serial.println("sending to xbox chip");
+
+  memcpy(zune_to_xbox, data, size);
+  // byte 5 (0x04) contains the response length, not inclusive of the header
+  uint8_t response_length = (data[4]) + 5;
+  // response - byte 5 (0x04) is always 0x00 - so just hack it in
+  xbox_to_zune[0] = 0x00;
+  // remember, we are manually setting value 0x00, so we start at 0x01 on xbox_to_zune
+  transferXbox(zune_to_xbox, xbox_to_zune + 1, size, response_length);
+  Serial.print("sending xbox response back to the zune: ");
+  send_zune_message(0x11, xbox_to_zune, response_length + 1);
 }
 
 void onReceiveFunction(void) {
+  std::lock_guard<std::mutex> lck(serial_mtx); // one interrupt at a time plz
   // find the first byte in a message, we may have started in the middle
   uint8_t rx_buffer[4]; // four, because the first byte where we even know what we need is four bytes into a valid message
   while(true){
@@ -43,20 +96,22 @@ void onReceiveFunction(void) {
   
   // now, we need to get the data part and the crc
   uint8_t data[length+1];
-  Serial2.readBytes(data, length+1); // length + crc
+  Serial2.readBytes(data, length + 1); // length + crc
 
-  Serial.print("Packet!\n");
-  Serial.printf("Type: 0x%02x\n", type);
-  Serial.printf("Length: 0x%02x\n", length);
-  Serial.print("Data:");
-  for(int i = 0; i< length+1; i++) // a length of 0 still has data. i think.
+  Serial.print("Packet! ");
+  Serial.printf("Type: 0x%02x ", type);
+  Serial.printf("Length: 0x%02x ", length);
+  if(length > 0)
   {
-    Serial.printf(" [0x%02x]0x%02x",i,data[i]);
+    Serial.print("Data:");
+    for(int i = 0; i< length; i++) // a length of 0 still has data. i think.
+    {
+      Serial.printf(" [0x%02x]0x%02x",i,data[i]);
+    }
+    Serial.print("\n");
   }
-  Serial.print("\n");
 
   uint8_t crc = calculate_crc(type, data, length);
-
 
   if(data[length] != crc)
   {
@@ -67,6 +122,10 @@ void onReceiveFunction(void) {
   if(type == 0x10)
   {
     handle_0x10(data, length);
+  }
+  if(type == 0x11)
+  {
+    handle_0x11(data, length);
   }
 
 }
@@ -84,6 +143,11 @@ void setupZune(int tx_pin, int rx_pin, int _auth_pin)
     // Serial2.onReceiveError(onRxErr);
     Serial2.onReceive(onReceiveFunction);
     Serial.println("Done setting up zune uart");
+    digitalWrite(_auth_pin, 0);
+    delay(10);
+    digitalWrite(_auth_pin, 1);
+    delay(10);
+    digitalWrite(_auth_pin, 0);
 }
 
 // the zune sends a pile of messages. we just need to respond to them.

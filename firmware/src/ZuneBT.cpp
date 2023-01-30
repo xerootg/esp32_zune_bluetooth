@@ -17,13 +17,13 @@
 // 0, rst, tx0, rx0 are for programming interface, so the top row is useless
 
 // tested, works
-#define XBOX_CLK 22
-#define XBOX_DIO 21
-#define XBOX_RST 19
+#define XBOX_DIO 21 //5
+#define XBOX_CLK 22 //6
+#define XBOX_RST 19 //7
 
-AudioKitStream kit; // Access I2S as stream
-A2DPStream out = A2DPStream::instance();
-StreamCopy copier(out, kit);  
+// AudioKitStream kit; // Access I2S as stream
+// A2DPStream out = A2DPStream::instance();
+// StreamCopy copier(out, kit);  
 
 QueueHandle_t pt_event_queue;
 
@@ -31,9 +31,9 @@ QueueHandle_t pt_event_queue;
 TaskHandle_t audio_copy_task_handle = NULL;
 TaskHandle_t zune_control_task_handle = NULL;
 
-void audio_copy_task(void* pvParameters) {
-  for( ;; ) copier.copy();
-}
+// void audio_copy_task(void* pvParameters) {
+//   for( ;; ) copier.copy();
+// }
 
 void avrcp_to_uart_task(void* pvParameters) {
   esp_avrc_tg_cb_param_t::avrc_tg_psth_cmd_param event;
@@ -54,43 +54,42 @@ uint8_t from_xbox[25];
 
 // Arduino Setup
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(921600);
 
-    // setupXbox(XBOX_DIO, XBOX_CLK, XBOX_RST);
-    setupZune(23, 18, 9);
+    setupXbox(XBOX_DIO, XBOX_CLK, XBOX_RST);
+    setupZune(23, 18, 13);
 
-    // configure the input stream
-    auto cfg = kit.defaultConfig(RX_MODE);
-    cfg.sd_active = false;
-    cfg.input_device = AUDIO_HAL_ADC_INPUT_LINE2;
-    cfg.sample_rate = AUDIO_HAL_44K_SAMPLES;
+  //   // configure the input stream
+  //   auto cfg = kit.defaultConfig(RX_MODE);
+  //   cfg.sd_active = false;
+  //   cfg.input_device = AUDIO_HAL_ADC_INPUT_LINE2;
+  //   cfg.sample_rate = AUDIO_HAL_44K_SAMPLES;
 
-    auto config = out.defaultConfig();
-    config.auto_reconnect = true;
-    config.mode = TX_MODE;
-    pt_event_queue = config.passthrough_event_queue;
-    out.begin(config);
-    while(!out.a2dp_source->is_connected())
-    {
-        
-    }
+  //   auto config = out.defaultConfig();
+  //   config.auto_reconnect = true;
+  //   config.mode = TX_MODE;
+  //   pt_event_queue = config.passthrough_event_queue;
+  //   out.begin(config);
+  //   while(!out.a2dp_source->is_connected())
+  //   {
+  //   }
 
-    kit.begin(cfg);
-    kit.setVolume(1);
-    out.notifyBaseInfo(44100);
+  //   kit.begin(cfg);
+  //   kit.setVolume(1);
+  //   out.notifyBaseInfo(44100);
 
-      // step 5: start the tasks that will copy the audio data and handle the ipod control
-  BaseType_t xReturned = xTaskCreate(audio_copy_task, "AudioCopyTask", 1024 * 8, NULL, tskIDLE_PRIORITY, &audio_copy_task_handle);
-  if(xReturned != pdPASS) {
-    Serial.print("error making the audio copy task. restarting.\n");
-    ESP.restart();
-  }
+  //     // step 5: start the tasks that will copy the audio data and handle the ipod control
+  // BaseType_t xReturned = xTaskCreate(audio_copy_task, "AudioCopyTask", 1024 * 8, NULL, tskIDLE_PRIORITY, &audio_copy_task_handle);
+  // if(xReturned != pdPASS) {
+  //   Serial.print("error making the audio copy task. restarting.\n");
+  //   ESP.restart();
+  // }
 
-  xReturned = xTaskCreate(avrcp_to_uart_task, "AVRCPToUartTask", 1024 * 4, NULL, tskIDLE_PRIORITY, &zune_control_task_handle);
-  if(xReturned != pdPASS) {
-    Serial.print("error making the AVRCP translation task. restarting.\n");
-    ESP.restart();
-  }
+  // BaseType_t xReturned = xTaskCreate(avrcp_to_uart_task, "AVRCPToUartTask", 1024 * 4, NULL, tskIDLE_PRIORITY, &zune_control_task_handle);
+  // if(xReturned != pdPASS) {
+  //   Serial.print("error making the AVRCP translation task. restarting.\n");
+  //   ESP.restart();
+  // }
 }
 
 void loop()
