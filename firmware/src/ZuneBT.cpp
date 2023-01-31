@@ -33,6 +33,8 @@ uint8_t from_xbox[25];
 
 // Arduino Setup
 void setup() {
+  rtc_wdt_protect_off();
+  rtc_wdt_disable();
 
   Serial.begin(115200);
 
@@ -58,8 +60,7 @@ void setup() {
   //   ESP.restart();
   // }
 
-  
-  xReturned = xTaskCreate(zune_message_receiver, "ZuneUartReceiver", 1024 * 4, NULL, tskIDLE_PRIORITY, &zune_message_receiver_handle);
+  xReturned = xTaskCreatePinnedToCore(zune_message_receiver, "ZuneUartReceiver", 1024 * 4, NULL, tskIDLE_PRIORITY, &zune_message_receiver_handle, 0);
   if(xReturned != pdPASS) {
     Serial.print("error making the Zune UART task. restarting.\n");
     ESP.restart();

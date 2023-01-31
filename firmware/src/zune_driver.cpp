@@ -24,14 +24,12 @@ void handle_0x10(uint8_t *_data, uint8_t size)
   {
   case 0x03:
   { // HELO
-    Serial.print("Sending EHLO\n");
     uint8_t ehlo[4] = {0x00, 0x03, 0x00, 0x01};
     send_zune_message(0x10, ehlo, 4);
   }
   break;
   case 0x02:
   {
-    Serial.print("XboxAuthString\n");
     uint8_t XboxAuthString[178] = {
         0x00, 0x02, 0x58, 0x00, 0x62, 0x00, 0x6F, 0x00, 0x78, 0x00,
         0x20, 0x00, 0x53, 0x00, 0x65, 0x00, 0x63, 0x00, 0x75, 0x00,
@@ -55,12 +53,11 @@ void handle_0x10(uint8_t *_data, uint8_t size)
   }
   break;
   };
-  Serial.print("0x10 handler exit\n");
 }
 
 void handle_0x11(uint8_t *data, uint8_t size)
 {
-  Serial.println("sending to xbox chip");
+  Serial.printf("Handling type 0x11\n");
   portENTER_CRITICAL(&message_copy_mux);
   memcpy(zune_to_xbox, data, size);
   portEXIT_CRITICAL(&message_copy_mux);
@@ -69,9 +66,15 @@ void handle_0x11(uint8_t *data, uint8_t size)
   // response - byte 5 (0x04) is always 0x00 - so just hack it in
   xbox_to_zune[0] = 0x00;
   // remember, we are manually setting value 0x00, so we start at 0x01 on xbox_to_zune
-  transferXbox(zune_to_xbox, xbox_to_zune + 1, size, response_length);
-  Serial.print("sending xbox response back to the zune\n");
-  send_zune_message(0x11, xbox_to_zune, response_length + 1);
+  Serial.println("Sending to Xbox driver");
+  if(transferXbox(zune_to_xbox, xbox_to_zune + 1, size, response_length)>0)
+  {
+    Serial.print("sending xbox response back to the zune\n");
+    send_zune_message(0x11, xbox_to_zune, response_length + 1);
+  }
+  else{
+    Serial.print("xbox chip did not reply");
+  }
 }
 
 void zune_message_receiver(void *pvParameters)
@@ -107,18 +110,18 @@ void zune_message_receiver(void *pvParameters)
     uint8_t data[length + 1];
     Serial2.readBytes(data, length + 1); // length + crc
 
-    Serial.print("Packet! ");
-    Serial.printf("Type: 0x%02x ", type);
-    Serial.printf("Length: 0x%02x ", length);
-    if (length > 0)
-    {
-      Serial.print("Data:");
-      for (int i = 0; i < length; i++) // a length of 0 still has data. i think.
-      {
-        Serial.printf(" [0x%02x]0x%02x", i, data[i]);
-      }
-      Serial.print("\n");
-    }
+    // Serial.print("Packet! ");
+    // Serial.printf("Type: 0x%02x ", type);
+    // Serial.printf("Length: 0x%02x ", length);
+    // if (length > 0)
+    // {
+    //   Serial.print("Data:");
+    //   for (int i = 0; i < length; i++) // a length of 0 still has data. i think.
+    //   {
+    //     Serial.printf(" [0x%02x]0x%02x", i, data[i]);
+    //   }
+    //   Serial.print("\n");
+    // }
 
     uint8_t crc = calculate_crc(type, data, length);
 
